@@ -181,21 +181,28 @@ class SwinV2Block(nn.Module):
         self.norm2 = nn.LayerNorm(dim, eps=norm_eps)
         self.mlp = Mlp(dim, mlp_ratio=mlp_ratio, drop=drop)
 
-    def _make_attn_mask(self, H: int, W: int, device: torch.device) -> Optional[torch.Tensor]:
-        """attention mask used when windows are shifted."""
-        if self.shift_size == 0:
+    def _make_attn_mask(
+        self,
+        H: int,
+        W: int,
+        window_size: int,
+        shift_size: int,
+        device: torch.device,
+    ) -> Optional[torch.Tensor]:
+        if shift_size == 0:
             return None
 
         img_mask = torch.zeros((1, H, W, 1), device=device)
+
         h_slices = (
-            slice(0, -self.window_size),
-            slice(-self.window_size, -self.shift_size),
-            slice(-self.shift_size, None),
+            slice(0, -window_size),
+            slice(-window_size, -shift_size),
+            slice(-shift_size, None),
         )
         w_slices = (
-            slice(0, -self.window_size),
-            slice(-self.window_size, -self.shift_size),
-            slice(-self.shift_size, None),
+            slice(0, -window_size),
+            slice(-window_size, -shift_size),
+            slice(-shift_size, None),
         )
 
         cnt = 0
@@ -204,10 +211,11 @@ class SwinV2Block(nn.Module):
                 img_mask[:, h, w, :] = cnt
                 cnt += 1
 
-        mask_windows = window_partition(img_mask, self.window_size)
-        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+        mask_windows = window_partition(img_mask, window_size)
+        mask_windows = mask_windows.view(-1, window_size * window_size)
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, 0.0)
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0))
+        attn_mask = attn_mask.masked_fill(attn_mask == 0, 0.0)
         return attn_mask
 
     def forward(self, x: torch.Tensor, H: int, W: int) -> torch.Tensor:
@@ -217,27 +225,31 @@ class SwinV2Block(nn.Module):
         shortcut = x
         x = x.view(B, H, W, C)
 
-        pad_r = (self.window_size - W % self.window_size) % self.window_size
-        pad_b = (self.window_size - H % self.window_size) % self.window_size
+        # Effective window/shift for current feature-map size
+        window_size = min(self.window_size, H, W)
+        shift_size = 0 if min(H, W) <= window_size else self.shift_size
+
+        pad_r = (window_size - W % window_size) % window_size
+        pad_b = (window_size - H % window_size) % window_size
         if pad_r > 0 or pad_b > 0:
             x = F.pad(x, (0, 0, 0, pad_r, 0, pad_b))
         Hp, Wp = x.shape[1], x.shape[2]
 
-        attn_mask = self._make_attn_mask(Hp, Wp, x.device)
+        attn_mask = self._make_attn_mask(Hp, Wp, window_size, shift_size, x.device)
 
-        if self.shift_size > 0:
-            x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+        if shift_size > 0:
+            x = torch.roll(x, shifts=(-shift_size, -shift_size), dims=(1, 2))
 
-        x_windows = window_partition(x, self.window_size)
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
+        x_windows = window_partition(x, window_size)
+        x_windows = x_windows.view(-1, window_size * window_size, C)
 
         attn_windows = self.attn(x_windows, mask=attn_mask)
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
+        attn_windows = attn_windows.view(-1, window_size, window_size, C)
 
-        x = window_reverse(attn_windows, self.window_size, Hp, Wp)
+        x = window_reverse(attn_windows, window_size, Hp, Wp)
 
-        if self.shift_size > 0:
-            x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+        if shift_size > 0:
+            x = torch.roll(x, shifts=(shift_size, shift_size), dims=(1, 2))
 
         if pad_b > 0 or pad_r > 0:
             x = x[:, :H, :W, :].contiguous()

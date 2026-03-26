@@ -1,3 +1,5 @@
 *pdf
 *zip__pycache__/
 *.pyc
+*.pt
+wisard_index_*

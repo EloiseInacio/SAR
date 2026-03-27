@@ -214,4 +214,78 @@ def train(cfg: FinetuneConfig | None = None) -> None:
 
 
 if __name__ == "__main__":
-    train()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Fine-tune MySwinV2 on WiSARD")
+
+    # data
+    parser.add_argument("--zip-path",      default=None)
+    parser.add_argument("--data-dir",      default=None)
+    parser.add_argument("--neg-per-pos",   type=float, default=None)
+    parser.add_argument("--val-fraction",  type=float, default=None)
+    parser.add_argument("--num-workers",   type=int,   default=None)
+    parser.add_argument("--crop-size",     type=int,   default=None)
+    parser.add_argument("--seed",          type=int,   default=None)
+
+    # model
+    parser.add_argument("--pretrained-path",    default=None)
+    parser.add_argument("--freeze-backbone",    action="store_true", default=None)
+    parser.add_argument("--dropout",            type=float, default=None)
+
+    # train
+    parser.add_argument("--epochs",                 type=int,   default=None)
+    parser.add_argument("--batch-size",             type=int,   default=None)
+    parser.add_argument("--lr",                     type=float, default=None)
+    parser.add_argument("--backbone-lr-multiplier", type=float, default=None)
+    parser.add_argument("--weight-decay",           type=float, default=None)
+    parser.add_argument("--warmup-epochs",          type=int,   default=None)
+    parser.add_argument("--pos-weight",             type=float, default=None)
+    parser.add_argument("--clip-grad",              type=float, default=None)
+    parser.add_argument("--checkpoint-dir",         default=None)
+    parser.add_argument("--log-every",              type=int,   default=None)
+    parser.add_argument("--device",                 default=None)
+
+    args = parser.parse_args()
+
+    cfg = FinetuneConfig()
+
+    # apply only explicitly provided overrides
+    _data_map = {
+        "zip_path":     args.zip_path,
+        "data_dir":     args.data_dir,
+        "neg_per_pos":  args.neg_per_pos,
+        "val_fraction": args.val_fraction,
+        "num_workers":  args.num_workers,
+        "crop_size":    args.crop_size,
+        "seed":         args.seed,
+    }
+    _model_map = {
+        "pretrained_path":  args.pretrained_path,
+        "freeze_backbone":  args.freeze_backbone,
+        "dropout":          args.dropout,
+    }
+    _train_map = {
+        "epochs":                 args.epochs,
+        "batch_size":             args.batch_size,
+        "lr":                     args.lr,
+        "backbone_lr_multiplier": args.backbone_lr_multiplier,
+        "weight_decay":           args.weight_decay,
+        "warmup_epochs":          args.warmup_epochs,
+        "pos_weight":             args.pos_weight,
+        "clip_grad":              args.clip_grad,
+        "checkpoint_dir":         args.checkpoint_dir,
+        "log_every":              args.log_every,
+        "device":                 args.device,
+    }
+
+    for k, v in _data_map.items():
+        if v is not None:
+            setattr(cfg.data, k, v)
+    for k, v in _model_map.items():
+        if v is not None:
+            setattr(cfg.model, k, v)
+    for k, v in _train_map.items():
+        if v is not None:
+            setattr(cfg.train, k, v)
+
+    train(cfg)

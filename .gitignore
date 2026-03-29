@@ -1,8 +1,12 @@
-*pdf
-*zip__pycache__/
+#Extensiosn
+*.pdf
 *.pyc
 *.pt
-wisard_index_*
 *.zip
-/WiSARDv1/*
 *.txt
+
+#Folders
+zip_pycache_/
+wisard_index_*
+/WiSARDv1/*
+/checkpoints/*

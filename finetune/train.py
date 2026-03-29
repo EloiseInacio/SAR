@@ -9,8 +9,9 @@ from typing import List, Tuple
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
-from huggingface_hub import HfApi, create_repo, upload_file, login
+from huggingface_hub import HfApi, create_repo, upload_file, login, upload_folder
 
 from finetune.config import FinetuneConfig
 from finetune.dataset import WiSARDClassDataset
@@ -125,6 +126,8 @@ def train(cfg: FinetuneConfig | None = None) -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     os.makedirs(cfg.train.checkpoint_dir, exist_ok=True)
+    log_dir = os.path.join(cfg.train.checkpoint_dir, "runs")
+    writer = SummaryWriter(log_dir=log_dir)
 
     print("Loading datasets...")
     train_ds = WiSARDClassDataset(cfg.data, split="train")
@@ -185,6 +188,8 @@ def train(cfg: FinetuneConfig | None = None) -> None:
             if step % cfg.train.log_every == 0:
                 lr = optimizer.param_groups[-1]["lr"]
                 print(f"  step {step:6d}  loss {loss.item():.4f}  lr {lr:.2e}")
+                writer.add_scalar("train/loss", loss.item(), step)
+                writer.add_scalar("train/lr", lr, step)
 
         avg_loss = epoch_loss / len(train_loader)
         metrics  = evaluate(model, val_loader, device)
@@ -214,7 +219,9 @@ def train(cfg: FinetuneConfig | None = None) -> None:
             torch.save(ckpt, os.path.join(cfg.train.checkpoint_dir, "best.pt"))
             print(f"  -> new best F1: {best_f1:.3f}")
 
-def upload_best_to_hf(cfg, repo_name: str):
+    writer.close()
+
+def upload_to_hf(cfg, repo_name: str):
     api = HfApi()
 
     # Create repo if it doesn't exist
@@ -223,17 +230,28 @@ def upload_best_to_hf(cfg, repo_name: str):
     best_path = os.path.join(cfg.train.checkpoint_dir, "best.pt")
 
     if not os.path.exists(best_path):
-        print("No best checkpoint found, skipping upload.")
-        return
+        print("No best checkpoint found, skipping model weights upload.")
+    else:
+        print(f"Uploading best model to Hugging Face repo: {repo_name}")
 
-    print(f"Uploading best model to Hugging Face repo: {repo_name}")
+        upload_file(
+            path_or_fileobj=best_path,
+            path_in_repo="best.pt",
+            repo_id=repo_name,
+            repo_type="model",
+        )
 
-    upload_file(
-        path_or_fileobj=best_path,
-        path_in_repo="best.pt",
-        repo_id=repo_name,
-        repo_type="model",
-    )
+    log_dir = os.path.join(cfg.train.checkpoint_dir, "runs")
+    if not os.path.exists(log_dir):
+        print("No TensorBoard logs found, skipping log upload.")
+    else:
+        print("Uploading TensorBoard logs...")
+        upload_folder(
+            folder_path=log_dir,
+            path_in_repo="runs",
+            repo_id=repo_name,
+            repo_type="model",
+            )
 
 def hf_login_from_file(token_path: str):
     if not os.path.exists(token_path):
@@ -331,4 +349,4 @@ if __name__ == "__main__":
     # Upload best checkpoint
     if hasattr(cfg.train, "hf_repo") and cfg.train.hf_repo:
         hf_login_from_file(cfg.train.hf_token_path)
-        upload_best_to_hf(cfg, cfg.train.hf_repo)
+        upload_to_hf(cfg, cfg.train.hf_repo)

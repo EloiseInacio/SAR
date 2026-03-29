@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 
-from .config import DataConfig
+from finetune.config import DataConfig
 
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)

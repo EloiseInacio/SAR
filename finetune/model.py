@@ -3,9 +3,9 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from swin2_utils import MySwinV2, SwinV2Cfg
+from Customswinv2.swin2_utils import MySwinV2, SwinV2Cfg
 
-from .config import ModelConfig
+from finetune.config import ModelConfig
 
 
 def build_model(cfg: ModelConfig, device: str = "cpu") -> MySwinV2:

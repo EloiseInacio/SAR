@@ -37,7 +37,8 @@ class TrainConfig:
     checkpoint_dir: str = "checkpoints/wisard"
     log_every: int = 100                 # training steps between console log lines
     device: str = "auto"                 # "auto" -> cuda if available, else cpu
-
+    hf_repo: Optional[str] = None       # Hugging Face repo ID to upload best checkpoint (e.g. "username/model_name")
+    hf_token_path: Optional[str] = None # Path to text file containing Hugging Face token for authentication
 
 @dataclass
 class FinetuneConfig:

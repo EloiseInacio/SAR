@@ -8,8 +8,8 @@ Run once before finetuning:
 import torch
 from transformers import Swinv2ForImageClassification
 
-from hf_utils import convert_hf_swinv2_state_dict
-from swin2_utils import MySwinV2, SwinV2Cfg
+from Customswinv2.hf_utils import convert_hf_swinv2_state_dict
+from Customswinv2.swin2_utils import MySwinV2, SwinV2Cfg
 
 HF_MODEL_ID = "microsoft/swinv2-tiny-patch4-window16-256"
 OUT_PATH    = "swinv2_wisard_pretrained.pt"

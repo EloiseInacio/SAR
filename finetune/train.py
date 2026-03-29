@@ -10,9 +10,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from .config import FinetuneConfig
-from .dataset import WiSARDClassDataset
-from .model import build_model
+from huggingface_hub import HfApi, create_repo, upload_file, login
+
+from finetune.config import FinetuneConfig
+from finetune.dataset import WiSARDClassDataset
+from finetune.model import build_model
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +214,37 @@ def train(cfg: FinetuneConfig | None = None) -> None:
             torch.save(ckpt, os.path.join(cfg.train.checkpoint_dir, "best.pt"))
             print(f"  -> new best F1: {best_f1:.3f}")
 
+def upload_best_to_hf(cfg, repo_name: str):
+    api = HfApi()
+
+    # Create repo if it doesn't exist
+    create_repo(repo_name, exist_ok=True)
+
+    best_path = os.path.join(cfg.train.checkpoint_dir, "best.pt")
+
+    if not os.path.exists(best_path):
+        print("No best checkpoint found, skipping upload.")
+        return
+
+    print(f"Uploading best model to Hugging Face repo: {repo_name}")
+
+    upload_file(
+        path_or_fileobj=best_path,
+        path_in_repo="best.pt",
+        repo_id=repo_name,
+        repo_type="model",
+    )
+
+def hf_login_from_file(token_path: str):
+    if not os.path.exists(token_path):
+        raise FileNotFoundError(f"Token file not found: {token_path}")
+
+    with open(token_path, "r") as f:
+        token = f.read().strip()
+
+    login(token=token)
+    print("Logged into Hugging Face.")
+
 
 if __name__ == "__main__":
     import argparse
@@ -221,29 +254,31 @@ if __name__ == "__main__":
     # data
     parser.add_argument("--zip-path",      default=None)
     parser.add_argument("--data-dir",      default=None)
-    parser.add_argument("--neg-per-pos",   type=float, default=None)
-    parser.add_argument("--val-fraction",  type=float, default=None)
-    parser.add_argument("--num-workers",   type=int,   default=None)
-    parser.add_argument("--crop-size",     type=int,   default=None)
-    parser.add_argument("--seed",          type=int,   default=None)
+    parser.add_argument("--neg-per-pos",   type=float, default=2)
+    parser.add_argument("--val-fraction",  type=float, default=0.2)
+    parser.add_argument("--num-workers",   type=int,   default=2)
+    parser.add_argument("--crop-size",     type=int,   default=256)
+    parser.add_argument("--seed",          type=int,   default=42)
 
     # model
-    parser.add_argument("--pretrained-path",    default=None)
-    parser.add_argument("--freeze-backbone",    action="store_true", default=None)
-    parser.add_argument("--dropout",            type=float, default=None)
+    parser.add_argument("--pretrained-path",    default="swinv2_wisard_pretrained.pt")
+    parser.add_argument("--freeze-backbone",    action="store_true", default=False)
+    parser.add_argument("--dropout",            type=float, default=0.2)
 
     # train
-    parser.add_argument("--epochs",                 type=int,   default=None)
-    parser.add_argument("--batch-size",             type=int,   default=None)
-    parser.add_argument("--lr",                     type=float, default=None)
-    parser.add_argument("--backbone-lr-multiplier", type=float, default=None)
-    parser.add_argument("--weight-decay",           type=float, default=None)
-    parser.add_argument("--warmup-epochs",          type=int,   default=None)
-    parser.add_argument("--pos-weight",             type=float, default=None)
-    parser.add_argument("--clip-grad",              type=float, default=None)
-    parser.add_argument("--checkpoint-dir",         default=None)
-    parser.add_argument("--log-every",              type=int,   default=None)
+    parser.add_argument("--epochs",                 type=int,   default=10)
+    parser.add_argument("--batch-size",             type=int,   default=16)
+    parser.add_argument("--lr",                     type=float, default=1e-4)
+    parser.add_argument("--backbone-lr-multiplier", type=float, default=0.1)
+    parser.add_argument("--weight-decay",           type=float, default=0.05)
+    parser.add_argument("--warmup-epochs",          type=int,   default=2)
+    parser.add_argument("--pos-weight",             type=float, default=2)
+    parser.add_argument("--clip-grad",              type=float, default=5)
+    parser.add_argument("--checkpoint-dir",         default="checkpoints/")
+    parser.add_argument("--log-every",              type=int,   default=100)
     parser.add_argument("--device",                 default=None)
+    parser.add_argument("--hf-repo", default=None, help="Hugging Face repo id (e.g. username/model_name)")
+    parser.add_argument("--hf-token-path", default="hf_token.txt", help="Path to HF token txt file")
 
     args = parser.parse_args()
 
@@ -276,6 +311,8 @@ if __name__ == "__main__":
         "checkpoint_dir":         args.checkpoint_dir,
         "log_every":              args.log_every,
         "device":                 args.device,
+        "hf_repo":                args.hf_repo,
+        "hf_token_path":          args.hf_token_path,
     }
 
     for k, v in _data_map.items():
@@ -289,3 +326,9 @@ if __name__ == "__main__":
             setattr(cfg.train, k, v)
 
     train(cfg)
+    print("Training complete.")
+
+    # Upload best checkpoint
+    if hasattr(cfg.train, "hf_repo") and cfg.train.hf_repo:
+        hf_login_from_file(cfg.train.hf_token_path)
+        upload_best_to_hf(cfg, cfg.train.hf_repo)
